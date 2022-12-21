@@ -14,8 +14,9 @@ class OceanPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final shader = fragment.fragmentShader();
-    shader.setFloat(0, size.width);
+    shader.setFloat(0, -size.width);
     shader.setFloat(1, size.height);
+
     shader.setFloat(2, time);
 
     final paint = Paint()..shader = shader;

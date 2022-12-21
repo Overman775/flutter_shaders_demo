@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../ocean/ocean_screen.dart';
 import '../pixelation/pixelation_screen.dart';
 
 class ExampleScreen extends StatefulWidget {
@@ -13,7 +14,7 @@ class ExampleScreen extends StatefulWidget {
 
 class _ExampleScreenState extends State<ExampleScreen> {
   final int screenIndex = 0;
-  final List<Widget> screens = [const PixelationScreen()];
+  final List<Widget> screens = [const OceanScreen(), const PixelationScreen()];
 
   @override
   Widget build(BuildContext context) {

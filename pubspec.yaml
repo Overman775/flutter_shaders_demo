@@ -23,5 +23,6 @@ flutter:
   uses-material-design: true
   shaders:
     - shaders/pixelation.frag
+    - shaders/ocean.frag
   assets:
     - assets/dash.jpg

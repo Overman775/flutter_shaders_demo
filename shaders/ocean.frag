@@ -1,171 +1,144 @@
-//afl_ext 2017-2019
-
-#version 460 core
-
 #include <flutter/runtime_effect.glsl>
 
 uniform vec2 iResolution;
 uniform float iTime;
-uniform vec2 iMouse;
 
 out vec4 fragColor;
 
-#define DRAG_MULT 0.048
-#define ITERATIONS_RAYMARCH 13
-#define ITERATIONS_NORMAL 48
+const int MAX_MARCH = 15;
+const int OCTAVE = 5;
+const mat2 OCTAVE_M = mat2(1.6,1.2,-1.2,1.6);
+const float EPSILON = 0.001;  // big epsilon is important to suppress noise
+const vec3 SUN = normalize(vec3(0.0, 1.0, -1.0));
+const vec3 WATER_LIGHTEST = vec3(0.6,0.7,0.5);
+const vec3 WATER_DARKEST = vec3(0.1,0.2,0.25);
+const float SEA_CHOPPY = 4.0;
+const float SEA_HEIGHT = 0.6;
 
-#define Mouse (iMouse.xy / iResolution.xy)
-#define Resolution (iResolution.xy)
-#define Time (iTime)
 
-vec2 wavedx(vec2 position, vec2 direction, float speed, float frequency, float timeshift) {
-    float x = dot(direction, position) * frequency + timeshift * speed;
-    float wave = exp(sin(x) - 1.0);
-    float dx = wave * cos(x);
-    return vec2(wave, -dx);
+float random(vec2 p) {
+    return fract(sin(dot(p, vec2(123.45, 678.9))) * 987654.321);
 }
 
-float getwaves(vec2 position, int iterations){
-	float iter = 0.0;
-    float phase = 6.0;
-    float speed = 2.0;
-    float weight = 1.0;
-    float w = 0.0;
-    float ws = 0.0;
-    for(int i=0;i<iterations;i++){
-        vec2 p = vec2(sin(iter), cos(iter));
-        vec2 res = wavedx(position, p, speed, phase, Time);
-        position += p * res.y * weight * DRAG_MULT;
-        w += res.x * weight;
-        iter += 12.0;
-        ws += weight;
-        weight = mix(weight, 0.0, 0.2);
-        phase *= 1.18;
-        speed *= 1.07;
-    }
-    return w / ws;
+float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    float a = random(i), c = random(i + vec2(0., 1.)),
+        b = random(i + vec2(1., 0.)), d = random(i + 1.);
+    vec2 u = smoothstep(0., 1., f);
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
-float raymarchwater(vec3 camera, vec3 start, vec3 end, float depth){
-    vec3 pos = start;
+float single_octave(vec2 uv) {
+    uv = sin(uv + 2.0 * noise(uv) - 1.0);
+    return pow(1.0 - pow(uv.x * uv.y, 1.5), SEA_CHOPPY);
+}
+
+float socean(vec3 pos) {
+    vec2 p = pos.xz;
+    p.x *= 0.5;
     float h = 0.0;
-    float hupper = depth;
-    float hlower = 0.0;
-    vec2 zer = vec2(0.0);
-    vec3 dir = normalize(end - start);
-    for(int i=0;i<318;i++){
-        h = getwaves(pos.xz * 0.1, ITERATIONS_RAYMARCH) * depth - depth;
-        if(h + 0.01 > pos.y) {
-            return distance(pos, camera);
+    float amp = SEA_HEIGHT;
+    float freq = 0.2;
+
+    float t = 100.0;
+    t = iTime * 0.5;
+
+    for (int i = 0; i < OCTAVE; ++i) {
+        h += (single_octave((p - t) * freq) + single_octave((p + t) * freq)) * amp;
+        p *= OCTAVE_M;
+        amp *= 0.2;
+        freq *= 2.0;
+    }
+    return pos.y - h;
+}
+
+float sdscene(vec3 pos) {
+    return socean(pos);
+}
+
+vec3 normal(vec3 pos) {
+    vec2 e0 = vec2(EPSILON, 0.);
+    float d = sdscene(pos);
+    return normalize(vec3(sdscene(pos + e0.xyy), sdscene(pos + e0.yxy), sdscene(pos + e0.yyx)) - d);
+}
+
+// bteitler: Generate a smooth sky gradient color based on ray direction's Y value
+// sky
+vec3 csky(vec3 e) {
+    e.y = max(e.y, 0.0);
+
+    vec3 ret;
+    ret.g = 1.0 - e.y;
+    ret.r = pow(ret.g, 3.0);
+    ret.b = 0.6 + ret.g * 0.4;
+    return ret;
+}
+
+float raymarch(vec3 pos, vec3 dir) {
+    float res = .0;
+    for (int i = 0; i < MAX_MARCH; ++i) {
+        float r = sdscene(pos);
+        res += r;
+        if (r <= EPSILON) {
+            break;
         }
-        pos += dir * (pos.y - h);
+        pos += dir * r;
     }
-    return -1.0;
+    return res;
 }
 
-float H = 0.0;
-vec3 normal(vec2 pos, float e, float depth){
-    vec2 ex = vec2(e, 0);
-    H = getwaves(pos.xy * 0.1, ITERATIONS_NORMAL) * depth;
-    vec3 a = vec3(pos.x, H, pos.y);
-    return normalize(cross((a-vec3(pos.x - e, getwaves(pos.xy * 0.1 - ex.xy * 0.1, ITERATIONS_NORMAL) * depth, pos.y)),
-                           (a-vec3(pos.x, getwaves(pos.xy * 0.1 + ex.yx * 0.1, ITERATIONS_NORMAL) * depth, pos.y + e))));
-}
-mat3 rotmat(vec3 axis, float angle)
-{
-	float s = sin(angle);
-	float c = cos(angle);
-	float oc = 1.0 - c;
-	return mat3(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,
-	oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,
-	oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c);
+vec3 shade(vec3 pos, vec3 eye, float d) {
+    vec3 n = normal(pos);
+    vec3 l = SUN;
+    // direct light from the sun
+    vec3 reflected = csky(reflect(eye, n)) * 0.5 + 10.0 * pow(max(dot(eye, reflect(l, n)), 0.0), 100.0);
+    // indirect light from the sun through water
+    vec3 refracted = WATER_DARKEST +  WATER_LIGHTEST * pow(0.4 * dot(n, l) + 0.6, 100.0) * 0.1;
+    refracted += WATER_LIGHTEST * 0.2 * (pos.y - 2.0 * SEA_HEIGHT);
+
+    float fresnel = 1.0 - max(dot(n,-eye),0.0);
+    float f0 = 0.1;
+    fresnel = f0 + (1.0 - f0) * pow(fresnel,5.0) * 0.65;
+    return mix(refracted, reflected, fresnel);
 }
 
-vec3 getRay(vec2 uv){
-    uv = (uv * 2.0 - 1.0) * vec2(Resolution.x / Resolution.y, 1.0);
-	vec3 proj = normalize(vec3(uv.x, uv.y, 1.0) + vec3(uv.x, uv.y, -1.0) * pow(length(uv), 2.0) * 0.05);
-    if(Resolution.x < 400.0) return proj;
-	vec3 ray = rotmat(vec3(0.0, -1.0, 0.0), 3.0 * ((Mouse.x + 0.5) * 2.0 - 1.0)) * rotmat(vec3(1.0, 0.0, 0.0), 1.5 * ((Mouse.y + 0.5) * 2.0 - 1.0)) * proj;
-    return ray;
+vec3 cocean(vec3 cp, vec3 cd) {
+    float d = raymarch(cp, cd);
+    return shade(cp + d * cd, cd, d);
 }
 
-float intersectPlane(vec3 origin, vec3 direction, vec3 point, vec3 normal)
-{
-    return clamp(dot(point - origin, normal) / dot(direction, normal), -1.0, 9991999.0);
+void camera(out vec3 ro, out vec3 rd, vec2 fragCoord) {
+    vec2 uv = (2.0 * fragCoord - iResolution.xy) / min(iResolution.x, iResolution.y);
+
+    float t = iTime * 0.1;
+
+    vec3 cd = normalize(vec3(
+        2.0 * noise(vec2(t * 2.0, t * -0.5)) - 1.0,
+        2.0 * noise(vec2(t * 0.5, -t * 2.0)) - 2.0,
+        -2.0
+    ));
+
+    vec3 cr = normalize(cross(cd, vec3(0.25 * (2.0 * noise(vec2(t, -t)) - 1.0), 1.0, 0.0)));
+    vec3 cu = cross(cr, cd);
+    ro = vec3(2.0 * noise(vec2(t * 1.2, -t * 3.4) - 1.0), SEA_HEIGHT * 5.0, -t * 8.0);
+    rd = normalize(cr * uv.x + cu * uv.y + cd);
 }
 
-vec3 extra_cheap_atmosphere(vec3 raydir, vec3 sundir){
-	sundir.y = max(sundir.y, -0.07);
-	float special_trick = 1.0 / (raydir.y * 1.0 + 0.1);
-	float special_trick2 = 1.0 / (sundir.y * 11.0 + 1.0);
-	float raysundt = pow(abs(dot(sundir, raydir)), 2.0);
-	float sundt = pow(max(0.0, dot(sundir, raydir)), 8.0);
-	float mymie = sundt * special_trick * 0.2;
-	vec3 suncolor = mix(vec3(1.0), max(vec3(0.0), vec3(1.0) - vec3(5.5, 13.0, 22.4) / 22.4), special_trick2);
-	vec3 bluesky= vec3(5.5, 13.0, 22.4) / 22.4 * suncolor;
-	vec3 bluesky2 = max(vec3(0.0), bluesky - vec3(5.5, 13.0, 22.4) * 0.002 * (special_trick + -6.0 * sundir.y * sundir.y));
-	bluesky2 *= special_trick * (0.24 + raysundt * 0.24);
-	return bluesky2 * (1.0 + 1.0 * pow(1.0 - raydir.y, 3.0)) + mymie * suncolor;
-}
-vec3 getatm(vec3 ray){
- 	return extra_cheap_atmosphere(ray, normalize(vec3(1.0))) * 0.5;
+void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
+    vec2 uv = (2.0 * fragCoord - iResolution.xy) / min(iResolution.x, iResolution.y);
 
-}
+    vec3 ro, rd;
+    camera(ro, rd, fragCoord);
 
-float sun(vec3 ray){
- 	vec3 sd = normalize(vec3(1.0));
-    return pow(max(0.0, dot(ray, sd)), 528.0) * 110.0;
-}
-vec3 aces_tonemap(vec3 color){
-	mat3 m1 = mat3(
-        0.59719, 0.07600, 0.02840,
-        0.35458, 0.90834, 0.13383,
-        0.04823, 0.01566, 0.83777
-	);
-	mat3 m2 = mat3(
-        1.60475, -0.10208, -0.00327,
-        -0.53108,  1.10813, -0.07276,
-        -0.07367, -0.00605,  1.07602
-	);
-	vec3 v = m1 * color;
-	vec3 a = v * (v + 0.0245786) - 0.000090537;
-	vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
-	return pow(clamp(m2 * (a / b), 0.0, 1.0), vec3(1.0 / 2.2));
-}
-void mainImage( out vec4 fragColor, in vec2 fragCoord )
-{
-	vec2 uv = fragCoord.xy / iResolution.xy;
+    vec3 color = mix(
+        csky(rd),
+        cocean(ro, rd),
+        pow(smoothstep(0.0,-0.05,rd.y), 0.3) // bteitler: Can be thought of as "fog" that gets thicker in the distance
+    );
 
-	float waterdepth = 2.1;
-	vec3 wfloor = vec3(0.0, -waterdepth, 0.0);
-	vec3 wceil = vec3(0.0, 0.0, 0.0);
-	vec3 orig = vec3(0.0, 2.0, 0.0);
-	vec3 ray = getRay(uv);
-	float hihit = intersectPlane(orig, ray, wceil, vec3(0.0, 1.0, 0.0));
-    if(ray.y >= -0.01){
-        vec3 C = getatm(ray) * 2.0 + sun(ray);
-        //tonemapping
-    	C = aces_tonemap(C);
-     	fragColor = vec4( C,1.0);
-        return;
-    }
-	float lohit = intersectPlane(orig, ray, wfloor, vec3(0.0, 1.0, 0.0));
-    vec3 hipos = orig + ray * hihit;
-    vec3 lopos = orig + ray * lohit;
-	float dist = raymarchwater(orig, hipos, lopos, waterdepth);
-    vec3 pos = orig + ray * dist;
-
-	vec3 N = normal(pos.xz, 0.001, waterdepth);
-    vec2 velocity = N.xz * (1.0 - N.y);
-    N = mix(vec3(0.0, 1.0, 0.0), N, 1.0 / (dist * dist * 0.01 + 1.0));
-    vec3 R = reflect(ray, N);
-    float fresnel = (0.04 + (1.0-0.04)*(pow(1.0 - max(0.0, dot(-N, ray)), 5.0)));
-
-    vec3 C = fresnel * getatm(R) * 2.0 + fresnel * sun(R) + vec3(0.0293, 0.0698, 0.1717);
-    //tonemapping
-    C = aces_tonemap(C);
-
-	fragColor = vec4(C,1.0);
+    // Output to screen
+    fragColor = vec4(pow(color, vec3(1.0/2.2)), 1.0);
 }
 
 void main() {

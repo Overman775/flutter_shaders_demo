@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import 'ocean_painter.dart';
+import 'ocean_animation.dart';
 
 class OceanScreen extends StatelessWidget {
   const OceanScreen({Key? key}) : super(key: key);
@@ -15,16 +15,14 @@ class OceanScreen extends StatelessWidget {
       future: _prepareScreen(),
       builder: (context, snapshot) {
         if (snapshot.hasData) {
-          return CustomPaint(
-            size: const Size.fromHeight(300),
-            painter: OceanPainter(
-              fragment: snapshot.data!,
-              time: 0,
-            ),
-          );
+          return LayoutBuilder(
+              builder: (context, constrains) => OceanAnimation(
+                    fragment: snapshot.data!,
+                    size: Size(constrains.maxWidth, constrains.maxHeight),
+                  ));
         } else if (snapshot.hasError) {
           return Center(
-            child: Text(snapshot.error.toString() ?? ''),
+            child: Text(snapshot.error.toString()),
           );
         } else {
           return const Center(

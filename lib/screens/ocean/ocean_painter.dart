@@ -17,16 +17,15 @@ class OceanPainter extends CustomPainter {
     shader.setFloat(0, size.width);
     shader.setFloat(1, size.height);
     shader.setFloat(2, time);
-    shader.setFloat(3, 0);
-    shader.setFloat(4, 0);
 
     final paint = Paint()..shader = shader;
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
       paint,
     );
+    canvas.rotate(90);
   }
 
   @override
-  bool shouldRepaint(OceanPainter oldDelegate) => false;
+  bool shouldRepaint(OceanPainter oldDelegate) => oldDelegate.time != time;
 }

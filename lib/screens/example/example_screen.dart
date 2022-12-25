@@ -14,12 +14,23 @@ class ExampleScreen extends StatefulWidget {
 }
 
 class _ExampleScreenState extends State<ExampleScreen> {
-  final int screenIndex = 0;
+  int screenIndex = 0;
   final List<Widget> screens = [
     const HexTileScreen(),
     const OceanScreen(),
     const PixelationScreen()
   ];
+
+  void _nextScreen() {
+    var nextIndex = screenIndex + 1;
+    if (nextIndex >= screens.length) {
+      nextIndex = 0;
+    }
+
+    setState(() {
+      screenIndex = nextIndex;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,8 +40,8 @@ class _ExampleScreenState extends State<ExampleScreen> {
       ),
       body: screens[screenIndex],
       floatingActionButton: FloatingActionButton(
-        onPressed: () {},
-        child: const Icon(Icons.add),
+        onPressed: _nextScreen,
+        child: const Icon(Icons.navigate_next),
       ),
     );
   }

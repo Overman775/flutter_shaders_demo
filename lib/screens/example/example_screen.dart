@@ -16,8 +16,8 @@ class ExampleScreen extends StatefulWidget {
 class _ExampleScreenState extends State<ExampleScreen> {
   int screenIndex = 0;
   final List<Widget> screens = [
-    const HexTileScreen(),
     const OceanScreen(),
+    const HexTileScreen(),
     const PixelationScreen()
   ];
 

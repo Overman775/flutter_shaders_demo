@@ -9,10 +9,10 @@ environment:
   flutter: ^3.7.0-1.2.pre
   sdk: ">=2.18.6 <3.0.0"
 
-
 dependencies:
   flutter:
     sdk: flutter
+  flutter_shaders: ^0.0.5
 
 dev_dependencies:
   flutter_lints: ^2.0.0
@@ -24,5 +24,6 @@ flutter:
   shaders:
     - shaders/pixelation.frag
     - shaders/ocean.frag
+    - shaders/hex_tile.frag
   assets:
     - assets/dash.jpg
